@@ -17,7 +17,9 @@ type Plan struct {
 }
 
 var db *sql.DB
+var sizeOfRow int
 
+// initDB initializes the database.
 func initDB() {
 	var err error
 	db, err = sql.Open("sqlite", "datePlans.db")
@@ -37,22 +39,23 @@ func initDB() {
 	}
 }
 
+// getSizeOfRow gets the size of row in current database.
+func getSizeOfRow(db *sql.DB) error {
+	query := `SELECT COUNT(id) FROM datePlans`
+	err := db.QueryRow(query).Scan(&sizeOfRow)
+	if err != nil {
+		log.Println("Database Error", err.Error())
+	}
+	return err
+}
+
 // getRandomPlan randomly gets one of date plans from database.
 // It needs improvement because getting from DB every time is inefficient.
 func getRandomPlan(w http.ResponseWriter, r *http.Request) {
-	// Gets the number of rows.
-	var countRow int
-	err := db.QueryRow(`SELECT COUNT(id) FROM datePlans`).Scan(&countRow)
-	if err != nil {
-		log.Println("Database Error", err.Error())
-		renderJSONError(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-	// Gets a row randomly.
-	randomId := rand.Intn(countRow + 1)
+	randomId := rand.Intn(sizeOfRow + 1)
 	query := `SELECT id, title, content FROM datePlans WHERE id = ?`
 	var p Plan
-	err = db.QueryRow(query, randomId).Scan(&p.ID, &p.Title, &p.Content)
+	err := db.QueryRow(query, randomId).Scan(&p.ID, &p.Title, &p.Content)
 	if err != nil {
 		log.Println("Database Error:", err.Error())
 		renderJSONError(w, "Internal server error", http.StatusInternalServerError)
@@ -77,6 +80,8 @@ func renderJSONError(w http.ResponseWriter, message string, statusCode int) {
 func main() {
 	initDB()
 	defer db.Close()
+	// gets the size of row of database only once.
+	getSizeOfRow(db)
 
 	http.HandleFunc("/datePlan/", getRandomPlan)
 	log.Println("Server started at :8080.")
