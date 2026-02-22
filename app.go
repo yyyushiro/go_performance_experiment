@@ -3,7 +3,9 @@ package main
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"log"
+
 	"math/rand"
 	"net/http"
 
@@ -14,6 +16,15 @@ type Plan struct {
 	ID      int    `json:"id"`
 	Title   string `json:"title"`
 	Content string `json:"content"`
+}
+
+type addPlanRequest struct {
+	Title   string `json:"title"`
+	Content string `json:"content"`
+}
+
+type deletePlanRequest struct {
+	Id int `json:"id"`
 }
 
 var db *sql.DB
@@ -51,16 +62,74 @@ func getSizeOfRow(db *sql.DB) error {
 
 // getRandomPlan randomly gets one of date plans from database.
 // It needs improvement because getting from DB every time is inefficient.
+// func getRandomPlan(w http.ResponseWriter, r *http.Request) {
+// 	randomId := rand.Intn(sizeOfRow + 1)
+// 	query := `SELECT id, title, content FROM datePlans WHERE id = ?`
+// 	var p Plan
+// 	err := db.QueryRow(query, randomId).Scan(&p.ID, &p.Title, &p.Content)
+// 	if err != nil {
+// 		log.Println("Database Error:", err.Error())
+// 		renderJSONError(w, "Internal server error", http.StatusInternalServerError)
+// 		return
+// 	}
+// 	renderJSON(w, &p)
+// }
+
 func getRandomPlan(w http.ResponseWriter, r *http.Request) {
-	randomId := rand.Intn(sizeOfRow + 1)
-	query := `SELECT id, title, content FROM datePlans WHERE id = ?`
+	randomId := rand.Intn(sizeOfRow)
+	query := `SELECT id, title, content FROM datePlans WHERE id >= ? ORDER BY id ASC LIMIT 1`
 	var p Plan
 	err := db.QueryRow(query, randomId).Scan(&p.ID, &p.Title, &p.Content)
 	if err != nil {
-		log.Println("Database Error:", err.Error())
+		query = `SELECT id, title, content FROM datePlans WHERE id <= ? ORDER BY id DESC LIMIT 1`
+		log.Println("Second sql issued")
+		err = db.QueryRow(query, randomId).Scan(&p.ID, &p.Title, &p.Content)
+		if err != nil {
+			log.Printf("SQL Error: %v", err)
+			renderJSONError(w, "Internal server error", http.StatusInternalServerError)
+		}
+	}
+	renderJSON(w, &p)
+}
+
+func addPlan(w http.ResponseWriter, r *http.Request) {
+	var newPlan addPlanRequest
+	err := json.NewDecoder(r.Body).Decode(&newPlan)
+	if err != nil {
+		log.Println("Decode error: ", err.Error())
+		renderJSONError(w, "Decoding failed", http.StatusBadRequest)
+		return
+	}
+	query := `INSERT INTO datePlans (title, content) VALUES (?, ?) RETURNING id, title, content`
+	var p Plan
+	err = db.QueryRow(query, newPlan.Title, newPlan.Content).Scan(&p.ID, &p.Title, &p.Content)
+	if err != nil {
+		log.Println("Database error: ", err)
 		renderJSONError(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
+	// Increment the number of rows in the database after making sure query succeeded.
+	sizeOfRow++
+	fmt.Printf("Id: %v, Title: %s, Content: %s,", p.ID, p.Title, p.Content)
+	renderJSON(w, &p)
+}
+
+func deletePlan(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		log.Println("method not allowed?")
+		renderJSONError(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+	var req deletePlanRequest
+	json.NewDecoder(r.Body).Decode(&req)
+	query := `DELETE FROM datePlans WHERE id = ? RETURNING id, title, content`
+	var p Plan
+	err := db.QueryRow(query, req.Id).Scan(&p.ID, &p.Title, &p.Content)
+	if err != nil {
+		log.Println("Database error: ", err)
+		renderJSONError(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	fmt.Printf("Id: %v, Title: %s, Content: %s,", p.ID, p.Title, p.Content)
 	renderJSON(w, &p)
 }
 
@@ -83,7 +152,9 @@ func main() {
 	// gets the size of row of database only once.
 	getSizeOfRow(db)
 
-	http.HandleFunc("/datePlan/", getRandomPlan)
+	http.HandleFunc("GET /datePlan/", getRandomPlan)
+	http.HandleFunc("POST /datePlan/", addPlan)
+	http.HandleFunc("DELETE /datePlan/", deletePlan)
 	log.Println("Server started at :8080.")
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
