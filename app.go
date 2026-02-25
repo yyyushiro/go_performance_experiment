@@ -8,14 +8,17 @@ import (
 
 	"math/rand"
 	"net/http"
+	"strconv"
 
 	_ "modernc.org/sqlite"
 )
 
 type Plan struct {
-	ID      int    `json:"id"`
-	Title   string `json:"title"`
-	Content string `json:"content"`
+	ID       int    `json:"id"`
+	Title    string `json:"title"`
+	Content  string `json:"content"`
+	Category string `json:"category"`
+	Like     string `json:"like"`
 }
 
 type addPlanRequest struct {
@@ -41,7 +44,9 @@ func initDB() {
 	statement := `CREATE TABLE IF NOT EXISTS datePlans (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		title TEXT,
-		content TEXT
+		content TEXT,
+		category TEXT DEFAULT 'General',
+		like INTEGER
 	);`
 
 	_, err = db.Exec(statement)
@@ -52,10 +57,10 @@ func initDB() {
 
 // getSizeOfRow gets the size of row in current database.
 func getSizeOfRow(db *sql.DB) error {
-	query := `SELECT COUNT(id) FROM datePlans`
+	query := `SELECT MAX(id) FROM datePlans`
 	err := db.QueryRow(query).Scan(&sizeOfRow)
 	if err != nil {
-		log.Println("Database Error", err.Error())
+		log.Println("Database Error: ", err)
 	}
 	return err
 }
@@ -77,13 +82,13 @@ func getSizeOfRow(db *sql.DB) error {
 
 func getRandomPlan(w http.ResponseWriter, r *http.Request) {
 	randomId := rand.Intn(sizeOfRow)
-	query := `SELECT id, title, content FROM datePlans WHERE id >= ? ORDER BY id ASC LIMIT 1`
+	query := `SELECT id, title, content, category, like FROM datePlans WHERE id >= ? ORDER BY id ASC LIMIT 1`
 	var p Plan
-	err := db.QueryRow(query, randomId).Scan(&p.ID, &p.Title, &p.Content)
+	err := db.QueryRow(query, randomId).Scan(&p.ID, &p.Title, &p.Content, &p.Category, &p.Like)
 	if err != nil {
-		query = `SELECT id, title, content FROM datePlans WHERE id <= ? ORDER BY id DESC LIMIT 1`
+		query = `SELECT id, title, content, category, like FROM datePlans WHERE id <= ? ORDER BY id DESC LIMIT 1`
 		log.Println("Second sql issued")
-		err = db.QueryRow(query, randomId).Scan(&p.ID, &p.Title, &p.Content)
+		err = db.QueryRow(query, randomId).Scan(&p.ID, &p.Title, &p.Content, &p.Category, &p.Like)
 		if err != nil {
 			log.Printf("SQL Error: %v", err)
 			renderJSONError(w, "Internal server error", http.StatusInternalServerError)
@@ -102,7 +107,7 @@ func addPlan(w http.ResponseWriter, r *http.Request) {
 	}
 	query := `INSERT INTO datePlans (title, content) VALUES (?, ?) RETURNING id, title, content`
 	var p Plan
-	err = db.QueryRow(query, newPlan.Title, newPlan.Content).Scan(&p.ID, &p.Title, &p.Content)
+	err = db.QueryRow(query, newPlan.Title, newPlan.Content).Scan(&p.ID, &p.Title, &p.Content, &p.Category, &p.Like)
 	if err != nil {
 		log.Println("Database error: ", err)
 		renderJSONError(w, "Internal server error", http.StatusInternalServerError)
@@ -110,26 +115,26 @@ func addPlan(w http.ResponseWriter, r *http.Request) {
 	}
 	// Increment the number of rows in the database after making sure query succeeded.
 	sizeOfRow++
-	fmt.Printf("Id: %v, Title: %s, Content: %s,", p.ID, p.Title, p.Content)
+	fmt.Printf("Id: %v, Title: %s, Content: %s, Category: %s, Like: %s", p.ID, p.Title, p.Content, p.Category, p.Like)
 	renderJSON(w, &p)
 }
 
 func deletePlan(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodDelete {
-		log.Println("method not allowed?")
+		log.Println("method not allowed")
 		renderJSONError(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
 	var req deletePlanRequest
 	json.NewDecoder(r.Body).Decode(&req)
 	query := `DELETE FROM datePlans WHERE id = ? RETURNING id, title, content`
 	var p Plan
-	err := db.QueryRow(query, req.Id).Scan(&p.ID, &p.Title, &p.Content)
+	err := db.QueryRow(query, req.Id).Scan(&p.ID, &p.Title, &p.Content, &p.Category, &p.Like)
 	if err != nil {
 		log.Println("Database error: ", err)
 		renderJSONError(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
-	fmt.Printf("Id: %v, Title: %s, Content: %s,", p.ID, p.Title, p.Content)
+	fmt.Printf("Id: %v, Title: %s, Content: %s, Category: %s, Like: %s", p.ID, p.Title, p.Content, p.Category, p.Like)
 	renderJSON(w, &p)
 }
 
