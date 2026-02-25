@@ -26,7 +26,8 @@ func main() {
 	defer db.Close()
 	//addRandomPlans()
 	//autoCategorize()
-	setLikeToZero()
+	//setALLLikeToZero()
+	setLikeToZero(1)
 }
 
 func addRandomPlans() {
@@ -102,9 +103,17 @@ func autoCategorize() {
 	tx.Commit()
 }
 
-func setLikeToZero() {
+func setALLLikeToZero() {
 	query := `UPDATE datePlans SET "like" = 0 WHERE "like" IS NULL;`
 	_, err := db.Exec(query)
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
+func setLikeToZero(id int) {
+	query := `UPDATE datePlans SET like = 0 WHERE id = ?`
+	_, err := db.Exec(query, id)
 	if err != nil {
 		log.Fatal(err)
 	}
