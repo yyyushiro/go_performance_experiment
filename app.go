@@ -36,10 +36,11 @@ var sizeOfRow int
 // initDB initializes the database.
 func initDB() {
 	var err error
-	db, err = sql.Open("sqlite", "datePlans.db")
+	db, err = sql.Open("sqlite", "datePlans.db?_busy_timeout=5000")
 	if err != nil {
 		log.Fatal(err)
 	}
+	db.SetMaxOpenConns(1)
 
 	statement := `CREATE TABLE IF NOT EXISTS datePlans (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -117,6 +118,29 @@ func getPlan(w http.ResponseWriter, r *http.Request) {
 	renderJSON(w, &p)
 }
 
+func likePlan(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(r.PathValue("id"))
+	if err != nil {
+		log.Println(err)
+		renderJSONError(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+
+	query := `UPDATE datePlans SET "like" = "like" + 1 WHERE id = ? RETURNING "like"`
+	var like int
+	err = db.QueryRow(query, id).Scan(&like)
+
+	if err != nil {
+		log.Println(err)
+		renderJSONError(w, "Internal server error", http.StatusInternalServerError)
+	}
+	// Make anonymous maps.
+	response := map[string]any{
+		"id":   id,
+		"like": like,
+	}
+	renderJSON(w, response)
+}
 
 func addPlan(w http.ResponseWriter, r *http.Request) {
 	var newPlan addPlanRequest
@@ -180,6 +204,7 @@ func main() {
 
 	http.HandleFunc("GET /datePlan/", getRandomPlan)
 	http.HandleFunc("GET /datePlan/{id}", getPlan)
+	http.HandleFunc("POST /datePlan/{id}/like", likePlan)
 	http.HandleFunc("POST /datePlan/", addPlan)
 	http.HandleFunc("DELETE /datePlan/", deletePlan)
 	log.Println("Server started at :8080.")
