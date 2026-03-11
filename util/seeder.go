@@ -5,36 +5,37 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"os"
 	"time"
 
-	_ "modernc.org/sqlite"
+	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
 var db *sql.DB
 
 func openDB() {
 	var err error
-	db, err = sql.Open("sqlite", "/Users/yushiro/src/projects/date_proposal_app/datePlans.db")
+	dsn := os.Getenv("DB_DSN")
+	db, err = sql.Open("pgx", dsn)
 	if err != nil {
 		log.Fatal(err)
 	}
-
 }
 
 func main() {
 	openDB()
 	defer db.Close()
-	//addRandomPlans()
+	addRandomPlans()
 	//autoCategorize()
 	//setALLLikeToZero()
-	setLikeToZero(1)
+	//setLikeToZero(1)
 }
 
 func addRandomPlans() {
 
 	places := []string{"新宿", "渋谷", "横浜", "自宅", "公園", "水族館", "夜の海", "知らない駅"}
 	actions := []string{"散歩する", "アイスを食べる", "夜景を見る", "ゲームをする", "深海魚を眺める", "お弁当を食べる"}
-
+	categories := []string{"Romantic", "Adventurous", "Budget-Friendly", "Foodie", "Indoor"}
 	fmt.Println("Started inserting data...")
 	start := time.Now()
 
@@ -43,17 +44,21 @@ func addRandomPlans() {
 		log.Fatal(err)
 	}
 
-	stmt, err := tx.Prepare("INSERT INTO datePlans(title, content) VALUES(?, ?)")
+	stmt, err := tx.Prepare(`INSERT INTO datePlans(title, content, category, "like") VALUES($1, $2, $3, 0)`)
 	if err != nil {
 		log.Fatal(err)
 	}
+	defer stmt.Close()
 
 	for i := 1; i <= 1000000; i++ {
 		title := fmt.Sprintf("%sで%s No.%d", places[rand.Intn(len(places))], actions[rand.Intn(len(actions))], i)
 		body := "これはテスト用のデートプラン詳細テキストです。大量のデータの中でも爆速で動くか検証中。"
 
-		_, err = stmt.Exec(title, body)
-
+		_, err = stmt.Exec(title, body, categories[rand.Intn(len(categories))])
+		if err != nil {
+			tx.Rollback()
+			log.Fatal(err)
+		}
 		if i%10000 == 0 {
 			fmt.Printf("%d cases finished... \n", i)
 		}

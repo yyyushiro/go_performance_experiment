@@ -1,0 +1,33 @@
+services:
+  app:
+    build: .
+    ports:
+      # host(8080) to container(8080)
+      - "8080:8080"
+    environment:
+      DB_DSN: postgres://app:secret@db:5432/dateplans?sslmode=disable
+    #依存関係の管理。これらの条件が満たされた上でappが起動する。
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+  
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: dateplans
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: secret
+    ports:
+      - "5432:5432"
+    volumes:
+      #このpathはLinux VM内のものであり、MacOSからは見えない。しかし
+      - pgdata:/var/lib/postgresql/data 
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d dateplans"]
+      interval: 1m30s
+      timeout: 30s
+      retries: 5
+
+volumes:
+  pgdata:

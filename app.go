@@ -7,9 +7,11 @@ import (
 	"log"
 	"math/rand"
 	"net/http"
+	"os"
 	"strconv"
+	"time"
 
-	_ "modernc.org/sqlite"
+	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
 type Plan struct {
@@ -35,18 +37,19 @@ var sizeOfRow int
 // initDB initializes the database.
 func initDB() {
 	var err error
-	db, err = sql.Open("sqlite", "datePlans.db?_busy_timeout=5000")
-	if err != nil {
-		log.Fatal(err)
-	}
-	db.SetMaxOpenConns(1)
+	// Specify the destination of database. It uses network, so the form is like URL, not a path.
+	dsn := os.Getenv("DB_DSN")
+	db, err = sql.Open("pgx", dsn)
+	db.SetMaxOpenConns(25)                 // 同時に開く接続の最大数
+	db.SetMaxIdleConns(25)                 // アイドル状態で保持する接続数
+	db.SetConnMaxLifetime(5 * time.Minute) // 接続の最大生存時間
 
 	statement := `CREATE TABLE IF NOT EXISTS datePlans (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		id SERIAL PRIMARY KEY,
 		title TEXT,
 		content TEXT,
 		category TEXT DEFAULT 'General',
-		like INTEGER
+		"like" INTEGER
 	);`
 
 	_, err = db.Exec(statement)
@@ -67,16 +70,17 @@ func getSizeOfRow(db *sql.DB) error {
 
 func getRandomPlan(w http.ResponseWriter, r *http.Request) {
 	randomId := rand.Intn(sizeOfRow)
-	query := `SELECT id, title, content, category, like FROM datePlans WHERE id >= ? ORDER BY id ASC LIMIT 1`
+	query := `SELECT id, title, content, category, like FROM datePlans WHERE id >= $1 ORDER BY id ASC LIMIT 1`
 	var p Plan
 	err := db.QueryRow(query, randomId).Scan(&p.ID, &p.Title, &p.Content, &p.Category, &p.Like)
 	if err != nil {
-		query = `SELECT id, title, content, category, like FROM datePlans WHERE id <= ? ORDER BY id DESC LIMIT 1`
+		query = `SELECT id, title, content, category, like FROM datePlans WHERE id <= $1 ORDER BY id DESC LIMIT 1`
 		log.Println("Second sql issued")
 		err = db.QueryRow(query, randomId).Scan(&p.ID, &p.Title, &p.Content, &p.Category, &p.Like)
 		if err != nil {
 			log.Printf("SQL Error: %v", err)
 			renderJSONError(w, "Internal server error", http.StatusInternalServerError)
+			return
 		}
 	}
 	renderJSON(w, &p)
@@ -90,7 +94,7 @@ func getPlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	query := `SELECT id, title, content, category, like FROM datePlans WHERE id = ?`
+	query := `SELECT id, title, content, category, "like" FROM datePlans WHERE id = $1`
 	var p Plan
 	err = db.QueryRow(query, id).Scan(&p.ID, &p.Title, &p.Content, &p.Category, &p.Like)
 	if err != nil {
@@ -110,13 +114,14 @@ func likePlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	query := `UPDATE datePlans SET "like" = "like" + 1 WHERE id = ? RETURNING "like"`
+	query := `UPDATE datePlans SET "like" = "like" + 1 WHERE id = $1 RETURNING "like"`
 	var like int
 	err = db.QueryRow(query, id).Scan(&like)
 
 	if err != nil {
 		log.Println(err)
 		renderJSONError(w, "Internal server error", http.StatusInternalServerError)
+		return
 	}
 	// Make anonymous maps.
 	response := map[string]any{
@@ -134,7 +139,18 @@ func addPlan(w http.ResponseWriter, r *http.Request) {
 		renderJSONError(w, "Decoding failed", http.StatusBadRequest)
 		return
 	}
-	query := `INSERT INTO datePlans (title, content) VALUES (?, ?) RETURNING id, title, content`
+	// Check if the fields are empty.
+	if newPlan.Title == "" {
+		log.Println("Incomplete request: missing title")
+		renderJSONError(w, "missing title", http.StatusBadRequest)
+		return
+	}
+	if newPlan.Content == "" {
+		log.Println("Incomplete request: missing content")
+		renderJSONError(w, "missing content", http.StatusBadRequest)
+		return
+	}
+	query := `INSERT INTO datePlans (title, content) VALUES ($1, $2) RETURNING id, title, content`
 	var p Plan
 	err = db.QueryRow(query, newPlan.Title, newPlan.Content).Scan(&p.ID, &p.Title, &p.Content, &p.Category, &p.Like)
 	if err != nil {
@@ -152,10 +168,11 @@ func deletePlan(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodDelete {
 		log.Println("method not allowed")
 		renderJSONError(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
 	}
 	var req deletePlanRequest
 	json.NewDecoder(r.Body).Decode(&req)
-	query := `DELETE FROM datePlans WHERE id = ? RETURNING id, title, content`
+	query := `DELETE FROM datePlans WHERE id = $1 RETURNING id, title, content`
 	var p Plan
 	err := db.QueryRow(query, req.Id).Scan(&p.ID, &p.Title, &p.Content, &p.Category, &p.Like)
 	if err != nil {
