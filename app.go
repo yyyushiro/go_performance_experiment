@@ -68,6 +68,7 @@ func getSizeOfRow(db *sql.DB) error {
 	return err
 }
 
+// getRandomPlan gets a data plan randomly.
 func getRandomPlan(w http.ResponseWriter, r *http.Request) {
 	randomId := rand.Intn(sizeOfRow)
 	query := `SELECT id, title, content, category, like FROM datePlans WHERE id >= $1 ORDER BY id ASC LIMIT 1`
@@ -86,6 +87,7 @@ func getRandomPlan(w http.ResponseWriter, r *http.Request) {
 	renderJSON(w, &p)
 }
 
+// getPlan gets a data plan with the specified id.
 func getPlan(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.Atoi(r.URL.Path[len("/datePlan/"):])
 	if err != nil {
@@ -106,6 +108,7 @@ func getPlan(w http.ResponseWriter, r *http.Request) {
 	renderJSON(w, &p)
 }
 
+// likePlan likes a plan.
 func likePlan(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.Atoi(r.PathValue("id"))
 	if err != nil {
@@ -131,6 +134,7 @@ func likePlan(w http.ResponseWriter, r *http.Request) {
 	renderJSON(w, response)
 }
 
+// addPlan adds a data plan.
 func addPlan(w http.ResponseWriter, r *http.Request) {
 	var newPlan addPlanRequest
 	err := json.NewDecoder(r.Body).Decode(&newPlan)
@@ -164,6 +168,7 @@ func addPlan(w http.ResponseWriter, r *http.Request) {
 	renderJSON(w, &p)
 }
 
+// deletePlan deletes a plan.
 func deletePlan(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodDelete {
 		log.Println("method not allowed")
@@ -172,7 +177,7 @@ func deletePlan(w http.ResponseWriter, r *http.Request) {
 	}
 	var req deletePlanRequest
 	json.NewDecoder(r.Body).Decode(&req)
-	query := `DELETE FROM datePlans WHERE id = $1 RETURNING id, title, content`
+	query := `DELETE FROM datePlans WHERE id = $1 RETURNING id, title, content, category, like`
 	var p Plan
 	err := db.QueryRow(query, req.Id).Scan(&p.ID, &p.Title, &p.Content, &p.Category, &p.Like)
 	if err != nil {
